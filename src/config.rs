@@ -1,11 +1,12 @@
 use std::{
+    error::Error,
     fmt::{self, Display},
     ops::ControlFlow,
 };
 
 /// `argv` in a more structured form
-#[derive(Debug, Clone)]
-enum Config {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Config {
     /// Print help message
     Help,
     /// Create a new project
@@ -17,18 +18,20 @@ enum Config {
 }
 
 /// The optimisation level to be used for compilation
-#[derive(Debug, Clone)]
-enum BuildMode {
+#[derive(Debug, Clone, PartialEq)]
+pub enum BuildMode {
     Debug,
     Release,
 }
 
-#[derive(Debug, Clone)]
-enum ArgsError {
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArgsError {
     InvalidSubcommand(String),
     InvalidFlag(String),
     MissingArg { arg: String, subcommand: String },
 }
+
+impl Error for ArgsError {}
 
 impl Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -45,8 +48,9 @@ impl Display for ArgsError {
 }
 
 impl Config {
-    pub fn new() -> Result<Self, ArgsError> {
-        let mut args = std::env::args().peekable();
+    // Expects the first arg to be skipped
+    pub fn new(args: impl Iterator<Item = String>) -> Result<Self, ArgsError> {
+        let mut args = args.peekable();
         let mut config = Self::Help;
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -85,7 +89,13 @@ impl Config {
                         },
                     }
                 }
-                _ => return Err(ArgsError::InvalidSubcommand(arg)),
+                arg_str => {
+                    return if arg_str.starts_with("-") | arg_str.starts_with("--") {
+                        Err(ArgsError::InvalidFlag(arg))
+                    } else {
+                        Err(ArgsError::InvalidSubcommand(arg))
+                    }
+                }
             }
         }
         Ok(config)
