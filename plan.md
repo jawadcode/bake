@@ -71,3 +71,11 @@ mandelbrot_c/
 |   |   |- mandelbrot_c
 |- bake.toml
 ```
+
+## Incremental compilation:
+
+Compare last-modified date of object files in bin/:
+* If the object file is newer than the corresponding file(s) in src/ then nothing needs to be done
+* If the object file is older than the corresponding file(s) in src/ then:
+  * Recompile that particular source file
+  * Run the linker again

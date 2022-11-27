@@ -1,6 +1,7 @@
 use std::{
     env,
     error::Error,
+    ffi::OsStr,
     fmt::{self, Display},
     fs,
     path::PathBuf,
@@ -11,6 +12,7 @@ use anyhow::Context;
 use config::{BuildMode, Config};
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::Deserialize;
 
 mod config;
 
@@ -110,6 +112,11 @@ fn new_project(name: String) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct ProjectConfig {
+    name: String,
+}
+
 fn build_project(mode: BuildMode) -> anyhow::Result<()> {
     let mut path = env::current_dir().context("Failed to get current directory")?;
     path.push("bake.toml");
@@ -119,15 +126,62 @@ fn build_project(mode: BuildMode) -> anyhow::Result<()> {
             path
         })));
     }
-
+    let bake_toml_contents = fs::read_to_string(&path).context("Failed to read 'bake.toml'")?;
+    let config = toml::from_str(&bake_toml_contents).context("Failed to parse 'bake.toml'")?;
     path.pop();
-    build_project_inner(&mut path, mode).with_context(|| "")?;
+    build_project_inner(&config, &mut path, mode)
+        .with_context(|| format!("Failed to build '{}'", config.name))?;
 
     Ok(())
 }
 
-fn build_project_inner(path: &mut PathBuf, mode: BuildMode) -> anyhow::Result<()> {
-    path.push("bin");
+fn build_project_inner(
+    config: &ProjectConfig,
+    path: &mut PathBuf,
+    mode: BuildMode,
+) -> anyhow::Result<()> {
+    path.push("src");
+    let source_files = path
+        .read_dir()
+        .with_context(|| format!("Could not read 'src/' of '{}'", config.name))?
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .map(|entry| {
+                    entry
+                        .file_type()
+                        .map(|ftype| {
+                            ftype.is_file()
+                                && entry
+                                    .path()
+                                    .extension()
+                                    .map(|ext| ext == "c" || ext == "h")
+                                    .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        });
+    for source_file in source_files {
+        let source_file = source_file?;
+        let source_file_path = source_file.path();
+        let source_file_stem = source_file_path
+            .file_stem()
+            .context("Source file has empty filename")?
+            .to_string_lossy()
+            .to_string();
+        let object_file_name = source_file_stem + ".o";
+        path.pop();
+        path.push("bin");
+        path.push(&object_file_name);
+        if source_file.metadata()?.modified()? > path.metadata()?.modified()? {
+            cc::Build::new()
+                .warnings_into_errors(true)
+                .file(source_file_path)
+                // TODO: Find out a way to set the entire filename of the object file outputted
+                .compile(&object_file_name);
+        }
+    }
     Ok(())
 }
 
