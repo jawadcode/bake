@@ -1,11 +1,10 @@
 use std::{
     env,
     error::Error,
-    ffi::OsStr,
     fmt::{self, Display},
     fs,
     path::PathBuf,
-    process::exit,
+    process::{exit, Command},
 };
 
 use anyhow::Context;
@@ -20,6 +19,8 @@ mod config;
 enum BakeError {
     ProjectName(String),
     InvalidProject(PathBuf),
+    FailedToCompile(PathBuf),
+    LinkerError,
 }
 
 impl Display for BakeError {
@@ -29,6 +30,8 @@ impl Display for BakeError {
             BakeError::InvalidProject(path) => {
                 write!(f, "'{}' is not a valid project", path.display())
             }
+            BakeError::FailedToCompile(file) => write!(f, "Failed to compile '{}'", file.display()),
+            BakeError::LinkerError => write!(f, "Linker error occurred"),
         }
     }
 }
@@ -52,8 +55,8 @@ fn run() -> anyhow::Result<()> {
     match config {
         Config::Help => Ok(print_help_msg()),
         Config::New { name } => new_project(name),
-        Config::Build { mode } => build_project(mode),
-        Config::Run { mode } => todo!(),
+        Config::Build { mode } => build_project(mode, false),
+        Config::Run { mode } => build_project(mode, true),
     }
 }
 
@@ -74,8 +77,7 @@ fn new_project(name: String) -> anyhow::Result<()> {
         )
     })?;
     path.push("bake.toml");
-    fs::write(&path, &format!("[package]\nname=\"{}\"\n", &name))
-        .context("Failed to create bake.toml")?;
+    fs::write(&path, &format!("name=\"{}\"\n", &name)).context("Failed to create bake.toml")?;
     path.pop();
     path.push("src");
     fs::create_dir(&path).with_context(|| {
@@ -117,7 +119,7 @@ struct ProjectConfig {
     name: String,
 }
 
-fn build_project(mode: BuildMode) -> anyhow::Result<()> {
+fn build_project(mode: BuildMode, run: bool) -> anyhow::Result<()> {
     let mut path = env::current_dir().context("Failed to get current directory")?;
     path.push("bake.toml");
     if !path.exists() {
@@ -132,6 +134,11 @@ fn build_project(mode: BuildMode) -> anyhow::Result<()> {
     build_project_inner(&config, &mut path, mode)
         .with_context(|| format!("Failed to build '{}'", config.name))?;
 
+    if run {
+        println!("\x1b[1;32mRunning:\x1b[0m");
+        Command::new(path).spawn()?;
+    }
+
     Ok(())
 }
 
@@ -140,6 +147,10 @@ fn build_project_inner(
     path: &mut PathBuf,
     mode: BuildMode,
 ) -> anyhow::Result<()> {
+    let opt_level = match mode {
+        BuildMode::Debug => "-O0",
+        BuildMode::Release => "-O3",
+    };
     path.push("src");
     let source_files = path
         .read_dir()
@@ -162,6 +173,8 @@ fn build_project_inner(
                 })
                 .unwrap_or(false)
         });
+    path.pop();
+    let mut object_files = Vec::new();
     for source_file in source_files {
         let source_file = source_file?;
         let source_file_path = source_file.path();
@@ -171,17 +184,42 @@ fn build_project_inner(
             .to_string_lossy()
             .to_string();
         let object_file_name = source_file_stem + ".o";
-        path.pop();
         path.push("bin");
         path.push(&object_file_name);
-        if source_file.metadata()?.modified()? > path.metadata()?.modified()? {
-            cc::Build::new()
-                .warnings_into_errors(true)
-                .file(source_file_path)
-                // TODO: Find out a way to set the entire filename of the object file outputted
-                .compile(&object_file_name);
+        object_files.push(path.clone());
+        if !path.exists() || source_file.metadata()?.modified()? > path.metadata()?.modified()? {
+            let status = Command::new("clang")
+                .args([
+                    opt_level,
+                    "-g",
+                    "-c",
+                    source_file_path.to_str().unwrap(),
+                    "-o",
+                    path.to_str().unwrap(),
+                ])
+                .status()?;
+            if !status.success() {
+                return Err(anyhow::Error::new(BakeError::FailedToCompile(
+                    source_file_path,
+                )));
+            }
         }
+        path.pop();
     }
+
+    path.push(&config.name);
+    let status = Command::new("clang")
+        .args(
+            object_files
+                .iter()
+                .map(|object_file| object_file.to_str().unwrap())
+                .chain([opt_level, "-o", path.to_str().unwrap()]),
+        )
+        .status()?;
+    if !status.success() {
+        return Err(anyhow::Error::new(BakeError::LinkerError));
+    }
+    println!("\x1b[1;32mSuccess:\x1b[0m Compiled '{}'", config.name);
     Ok(())
 }
 
