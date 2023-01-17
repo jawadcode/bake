@@ -233,7 +233,7 @@ A simple build system for C/C++.
 USAGE:
         bake [--help | help]             Print this help message
 
-        bake (init | new) name           Create a new bake project called 'name'
+        bake (init | new) <name>         Create a new bake project called 'name'
 
         bake build [--debug | --release] Build the project in the CWD with the
                                          default build mode being '--debug'
@@ -241,7 +241,7 @@ USAGE:
         bake run [--debug | --release]   Build the project in the CWD and run it
 
 INFO:
-        project name must match '^[A-Za-z_][A-Za-z0-9_]*$'
+        <name> must match '^[A-Za-z_][A-Za-z0-9_]*$'
 "#
     )
 }
