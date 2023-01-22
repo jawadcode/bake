@@ -90,7 +90,7 @@ impl Config {
                     }
                 }
                 arg_str => {
-                    return if arg_str.starts_with("-") | arg_str.starts_with("--") {
+                    return if arg_str.starts_with('-') | arg_str.starts_with("--") {
                         Err(ArgsError::InvalidFlag(arg))
                     } else {
                         Err(ArgsError::InvalidSubcommand(arg))

@@ -53,7 +53,10 @@ fn run() -> anyhow::Result<()> {
     let _exec_name = args.next();
     let config = Config::new(args)?;
     match config {
-        Config::Help => Ok(print_help_msg()),
+        Config::Help => {
+            print_help_msg();
+            Ok(())
+        }
         Config::New { name } => new_project(name),
         Config::Build { mode } => build_project(mode, false),
         Config::Run { mode } => build_project(mode, true),
@@ -77,7 +80,7 @@ fn new_project(name: String) -> anyhow::Result<()> {
         )
     })?;
     path.push("bake.toml");
-    fs::write(&path, &format!("name=\"{}\"\n", &name)).context("Failed to create bake.toml")?;
+    fs::write(&path, format!("name=\"{}\"\n", &name)).context("Failed to create bake.toml")?;
     path.pop();
     path.push("src");
     fs::create_dir(&path).with_context(|| {
