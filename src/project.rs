@@ -23,7 +23,7 @@ lazy_static! {
 
 pub fn new_project(name: &str) -> anyhow::Result<()> {
     if !PROJECT_NAME_REGEX.is_match(name) {
-        bail!("{name} is not a valid project name");
+        bail!("{name} is an invalid project name");
     }
 
     let cwd = env::current_dir().context("Failed to get current directory")?;
